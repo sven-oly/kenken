@@ -20,7 +20,7 @@ To use this:
 
 6. Run the main program with "python3 kenken.py"
 
-67 Watch the steps of solving the puzzle.
+7. Watch the steps of solving the puzzle.
 
 Note that this solver may not find a solution to all puzzles. If this is the case, please
 add a Pull Request with the JSON data.
