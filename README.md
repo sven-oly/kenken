@@ -23,7 +23,7 @@ To use this:
 7. Watch the steps of solving the puzzle.
 
 Note that this solver may not find a solution to all puzzles. If this is the case, please
-add a Pull Request with the JSON data.
+add an Issue with the JSON data.
 
 Also feel free to comment or make suggestions on improving the solver and its operation.
 
