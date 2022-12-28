@@ -41,7 +41,7 @@ def factor_n(val, max_val, num_cells=2):
         div = val % f
         if div == 0:
             factors.add(f)
-    root = math.sqrt(max_val)
+    root = math.sqrt(val)
     if num_cells == 2 and root in factors:
         # Special case - it can't be the square root
         factors.remove(root)
@@ -53,7 +53,7 @@ def add_possibles(val, max_val, num_cells):
     # TODO: Consider number of cells
     top = min(val - 1, max_val)  # Need to consider # cells
     possibles = set([n for n in range(1, top + 1)])
-    if num_cells == 2:
+    if num_cells == 2 and val % 2 == 0:
         # Special case
         possibles.remove(val // 2)
     return possibles
@@ -194,11 +194,11 @@ class Cage:
         return changed, num_changed
         
     def set_up_cell_list(self, cell_data):
+        start_values = start_cell_values(
+            len(cell_data), self.op, self.value, self.max)
         for pos in cell_data:
             # Create a new cell object
             new_cell = Cell(pos, self)
-            start_values = start_cell_values(
-                len(cell_data), self.op, self.value, self.max)
             new_cell.possibles = start_values.copy()
             self.cell_list.append(new_cell)
             
@@ -453,6 +453,7 @@ class Puzzle:
         if msg:
             print('%s' % (msg))
         index = 0
+        fmt_pattern = '%' + '%d' % self.size + 's'
         for row in range(self.size):
             row_str = []
             for col in range(self.size):
@@ -460,9 +461,9 @@ class Puzzle:
                 cell = self.cells[label]
                 poss = cell.possibles
                 key = str(poss).replace(', ', '').replace('{', '').replace('}', '')
-                row_str.append('%7s ' % key)
+                row_str.append(fmt_pattern % key)
                 index += 1
-            print('  %s: %s' % (row, row_str))
+            print('  %s: %s' % (row, ' '.join(row_str)))
 
     def print_cell_possibles(self):
         cells = sorted(self.cells.keys())
@@ -607,7 +608,8 @@ def test_reduce_cage(self, index, cage):
 
 def main():
     # This one needs lots of than guesses with the 2-possible cells
-    p = Puzzle(kk_puzzles.p7_mar2022)
+    #p = Puzzle(kk_puzzles.p7_mar2022)
+    p= Puzzle(kk_puzzles.puzzle9)
     #p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
     #p = Puzzle(kk_puzzles.puzzle5)
     #p = Puzzle(kk_puzzles.p5_27_mar)
