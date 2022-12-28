@@ -18,6 +18,7 @@ import kk_puzzles
 import copy
 import functools
 import itertools
+import math
 import operator
 
 # https://stackoverflow.com/questions/798854/all-combinations-of-a-list-of-lists
@@ -31,81 +32,80 @@ operator_map = {'+': operator.add,
                 '=': operator.is_,
                 }
 
-def factor_n(val, max, num_cells=2):
-    # Return set of all possible factors in num_cells.
+
+def factor_n(val, max_val, num_cells=2):
+    # For multiply cage, return set of all possible factors in num_cells.
     # TODO: Consider number of cells
-    rem = val
     factors = set()
-    for f in range(1, max+1):
+    for f in range(1, max_val+1):
         div = val % f
         if div == 0:
             factors.add(f)
+    root = math.sqrt(max_val)
+    if num_cells == 2 and root in factors:
+        # Special case - it can't be the square root
+        factors.remove(root)
     return set(factors)
 
-def add_possibles(val, max, num_cells):
+
+def add_possibles(val, max_val, num_cells):
     # What values can add the total in N cells
     # TODO: Consider number of cells
-    top = min(val - 1, max)  # Need to consider # cells
-    return set([n for n in range(1, top + 1)])
+    top = min(val - 1, max_val)  # Need to consider # cells
+    possibles = set([n for n in range(1, top + 1)])
+    if num_cells == 2:
+        # Special case
+        possibles.remove(val // 2)
+    return possibles
 
-def sub_possibles(val, max):
+
+def sub_possibles(val, max_val):
     result = set()
-    for n in range(max + 1):
+    for n in range(max_val + 1):
         if (n - val) > 0:
             result.add(n)
             result.add(n - val)
     return result
 
-def div_possibles(val, max):
+
+def div_possibles(val, max_val):
     result = set()
-    for n in range(1, max + 1):
+    for n in range(1, max_val + 1):
         if n % val == 0:
             result.add(n)
-            result.add(n // val )
+            result.add(n // val)
     return result
 
-def start_cell_from_rule(rule, max):
-    cells = rule['cells']
-    return start_cell_values(len(cells), rule['op'], rule['value'], max)
 
-#def start_cell_values(num_cells, op, val, max): 
-def start_cell_values(num_cells, op, val, max): 
+def start_cell_values(num_cells, op, val, max_val):
     if op == "*":
-        nums = factor_n(val, max, num_cells)
+        nums = factor_n(val, max_val, num_cells)
     elif op == "+":
-        nums = add_possibles(val, max, num_cells)
+        nums = add_possibles(val, max_val, num_cells)
     elif op == "-":
-        nums = sub_possibles(val, max)
+        nums = sub_possibles(val, max_val)
     elif op == "/":
-        nums = div_possibles(val, max)
+        nums = div_possibles(val, max_val)
     else:
         nums = set([val])
     return nums
 
+
 class LastRemovedError(BaseException):
     pass
     
-class cell():
+
+class Cell:
     # Stores information about a single cell of the grid
-    def __init__(self, position, cage):
+    def __init__(self, position, cell_cage):
         self.position = position
-        self.cage = cage
+        self.cage = cell_cage
         self.possibles = set()
 
-def subtract(a, b):
-    return a - b
 
-def divide(a, b):
-    return a / b
-
-def add(a, b):
-    return a + b
-
-def multiply(a, b):
-    return a * b
-
-class cage():
-
+class Cage:
+    # A container for a set of cells with an operator and a value
+    # from that operator on the values
     def __init__(self, op, value, cell_data, grid_size, cage_num=-1):
         self.op = op
         self.index = cage_num
@@ -113,19 +113,26 @@ class cage():
         self.cells = cell_data
         self.cell_list = []
         self.max = grid_size
+        self.linear = False
         self.set_up_cell_list(cell_data)
         self.debug = 1
         self.operator = operator_map[op]
-        self.linear = self.is_linear()
+        self.is_linear()
+
+    def is_combo_linear(self, cell_list):
+        # Check if the cells in this set are in a line.
+        return self.is_linear(cells_to_check=cell_list)
 
     def combos_of_possibles(self, cell_list):
         # Compute the combinations of the possible values in these cells
         list_of_possibles = []
+        combos_raw = []
         for cell in cell_list:
             list_of_possibles.append(cell.possibles)
             combos_raw = list(itertools.product(*list_of_possibles))
         combos = []
-        if self.linear:
+
+        if self.is_combo_linear(cell_list):
             # Check each combo for duplicates
             for c in combos_raw:
                 reduced = set(c)
@@ -135,24 +142,18 @@ class cage():
             combos = combos_raw
         return combos
 
-    def apply_operator_to_combos(self, combos, operator):
+    def apply_operator_to_combos(self, combos, op):
         # Gets the set of operators on these combinations
-        results = set([functools.reduce(operator, combo) for combo in combos])
-        #print(  'OPERATOR_TO_COMBOS %s on %s --> %s' % (
-        #    operator, combos, results))
-        return set(results)
+        return set([functools.reduce(op, combo) for combo in combos])
 
     def check_combos_for_value(self, combos, cell_options, value):
         # Creates a set of values from the cell_options that combine
         # with the operator to produce the value
         results = self.apply_operator_to_combos(combos, self.operator)
-        #print('  COMBO RESULTS: %s' % (results))
-        #print('  cell_options: %s' % (cell_options))
         reduced_set = set()
         for i in cell_options:
             for j in results:
-                test_val = self.operator(i,j)
-                #print('  %s %s %s --> %s (%s)' % (i, op, j, test_val, value))
+                test_val = self.operator(i, j)
                 if self.operator == operator.sub and abs(test_val) == value:
                     reduced_set.add(i)
                 elif self.operator == operator.truediv and (
@@ -162,15 +163,12 @@ class cage():
                     # print('   TRUEDIV %s to set' % (i))
                 elif test_val == value:  # Add or multiply
                     reduced_set.add(i)
-        #if self.operator == operator.sub or self.operator == operator.truediv:
-        #    print('--- REDUCED SET = %s' % (reduced_set))
         return reduced_set
 
     def reduce_cage_with_operator(self):
         # Apply the numeric constraint
         value = self.value
         full_cell_list = self.cell_list.copy()
-        #print('  FULL_CELL_LIST: %s' % ([c.position for c in full_cell_list]))
         index = 0
         changed = False
         num_changed = 0
@@ -181,7 +179,6 @@ class cage():
             reduced_cell_list.remove(c)
             combos = self.combos_of_possibles(reduced_cell_list)
 
-            # print('  combos: %s' % (combos))
             new_possibles = self.check_combos_for_value(
                 combos, c.possibles, value)
 
@@ -193,36 +190,27 @@ class cage():
                 changed = True
                 num_changed += len(old_possibles) - len(new_possibles)
                 c.possibles = new_possibles.copy()
-                # print('  OPERATOR: %d cells with %s %s' %
-                #       (len(self.cell_list), self.operator, value))
-                #print('     REDUCED %s %s --> %s' % (
-                #    c.position, old_possibles, new_possibles))
             index += 1
         return changed, num_changed
         
     def set_up_cell_list(self, cell_data):
         for pos in cell_data:
             # Create a new cell object
-            new_cell = cell(pos, self)
-            start_vals = start_cell_values(
+            new_cell = Cell(pos, self)
+            start_values = start_cell_values(
                 len(cell_data), self.op, self.value, self.max)
-            new_cell.possibles = start_vals.copy()
+            new_cell.possibles = start_values.copy()
             self.cell_list.append(new_cell)
             
-    def is_linear(self):
+    def is_linear(self, cells_to_check=None):
         x_vals = set()
         y_vals = set()
-        for cell in self.cell_list:
+        if cells_to_check is None:
+            cells_to_check = self.cell_list
+        for cell in cells_to_check:
             x_vals.add(cell.position['x'])
             y_vals.add(cell.position['y'])
-        self.linear = False
-        if len(x_vals) == 1 or len(y_vals) == 1:
-               self.linear = True
-        #print('%s LINEAR RESULT %s' % (self.index, self.linear))
-
-    def print(self):
-        print('Cage %s: %s%s linear=%s, %s cells' % (
-            self.index, self.op, self.value, self.linear, len(self.cell_list)))
+        self.linear = (len(x_vals) == 1 or len(y_vals) == 1)
 
     def print_possibles(self):
         print('ALL CELLS = %s' % self.cells)
@@ -237,35 +225,36 @@ class cage():
             return False, 0
 
             
-class puzzle():
-    def __init__(self):
+class Puzzle:
+    def __init__(self, puzzle_json):
         self.rules = None
         self.size = 0
         self.cells = {}  # Keys are (M,N), value is set of possible values.
         self.cages = []
         self.debug = 1
-        
-    def set_cells(self, puzz):
-        self.size = puzz['width']
-        rules = puzz['rules']
-        # print(self.size)
+        if puzzle_json:
+            self.set_cells(puzzle_json)
 
+        # For statistics
+        self.singles_removed = 0
+        self.doubles_removed = 0
+        self.num_guesses_made = 0
+
+        
+    def set_cells(self, puzzle_json):
+        self.size = puzzle_json['width']
+        rules = puzzle_json['rules']
         cage_num = 0
         for rule in rules:
-            new_cage = cage(
+            new_cage = Cage(
                 rule['op'], rule['value'], rule['cells'], self.size, cage_num)
             
-            start_vals = list(start_cell_from_rule(rule, self.size))
             if self.debug > 1:
                 print('New cage %s = %s, %s ' %
                       (cage_num, rule['op'], rule['value']))
 
             self.cages.append(new_cage)
 
-            # print(rule)
-            cells = rule['cells']
-            op = rule['op']
-            val = rule['value']
             # TODO: Check if the cells are linear
             # Get the cells from this cage
             cage_cells = new_cage.cell_list
@@ -278,19 +267,8 @@ class puzzle():
                 self.cells[position] = cage_cell
             cage_num += 1
 
-    def set_constraints(self):
-        # Set all possible values for each cell
-        # For each column
-        # For each row
-        # For each cage
-        return
-
-    def constraints_cage(self, cage):
-        op = cage['op']
-
-
     def row_col_for_cell(self, cell):
-        # Generates other cells in the row and column of this one
+        # Generates other cells in the row and column of this cell
         row = cell[0]
         col = cell[1]
         new_cells = []
@@ -326,7 +304,6 @@ class puzzle():
         changed = False
         num_changed = 0
         for cage in self.cages:
-            #print("Applying rule for cage [%s]" % cage_num)
             changed_this, num_in_last = cage.reduce_with_operator()
     
             if changed_this:
@@ -340,7 +317,7 @@ class puzzle():
         location = (col, row)
         cell = self.cells[location]
         rank = len(cell.possibles)
-        key = str(cell.possibles).replace(', ', '').replace('{','').replace('}','')
+        key = str(cell.possibles).replace(', ', '').replace('{', '').replace('}', '')
         if key in groups[rank]:
             groups[rank][key].append(cell)
         else:
@@ -353,7 +330,7 @@ class puzzle():
         num_removed = 0
         for group in groups:
             # look for value == rank
-            for key,val in group.items():
+            for key, val in group.items():
                 if len(val) == rank:
                     # if len(val) > 2:
                     #     print('@@@@ REDUCING %d items in column %s' %
@@ -367,12 +344,8 @@ class puzzle():
         num_removed = 0
         for group in groups:
             # look for value == rank
-            for key,val in group.items():
+            for key, val in group.items():
                 if len(val) == rank:
-                    # if len(val) > 2:
-                    #     print('@@@@ REDUCING %d items in row %s' %
-                    #           (len(val), row))
-                    #print('ROW REDUCABLE: row %s, {%s}, %s' % (row, key, val))
                     # Value is the cells that have the values to be removed
                     num_removed += self.reduce_row_cells(row, val)
             rank += 1
@@ -419,7 +392,7 @@ class puzzle():
     def find_n_groups(self):
         # For each column and each row, find groups of cells that have
         # N possibles
-        num_removed =0
+        num_removed = 0
         for col in range(self.size):
             # Each group contains a dictionary of possibles, with
             # its value containing the list of cells
@@ -450,18 +423,11 @@ class puzzle():
         if not groups[rank]:
             return
         for key, cells3 in groups[rank].items():
-            triple = cells3[0].possibles
             if len(cells3) == 2:
                 triple = cells3[0].possibles
-                cell3_positions = [cell.position for cell in cells3]
                 for k2, g2 in groups[rank-1].items():
                     g2_cell = g2[0]
                     if len(g2) == 1 and g2_cell.possibles.issubset(triple):
-                        # print('DETECT RANK %d GROUP in %s[%d] for %s: %s' %
-                        #       (
-                        #           rank, row_col, index, triple, cell3_positions))
-                        # print('  FOUND A DOUBLE that fits: %s at %s' % (
-                        #    g2_cell.possibles, g2_cell.position))
                         groups[rank][key].append(g2_cell)
 
     def detect_hidden_quads(self, groups, row_col, index):
@@ -470,11 +436,10 @@ class puzzle():
         if not groups[rank]:
             return
         for key, cells3 in groups[rank].items():
-            triple = cells3[0].possibles
             if len(cells3) == rank - 1:
                 triple = cells3[0].possibles
                 cell3_positions = [cell.position for cell in cells3]
-                for k2, g2 in groups[ 2].items():
+                for k2, g2 in groups[2].items():
                     g2_cell = g2[0]
                     if len(g2) == 1 and g2_cell.possibles.issubset(triple):
                         print('DETECT RANK %d GROUP in %s[%d] for %s: %s' %
@@ -484,91 +449,9 @@ class puzzle():
                             g2_cell.possibles, g2_cell.position))
                         groups[rank][key].append(g2_cell)
 
-    def apply_singles(self):
-        # for each cell, look for single values and remove it in row/columns
-        changed = False
-        num_removed = 0
-        for c in self.cells:
-            cell = self.cells[c]
-            if len(cell.possibles) == 1:
-                #print('%s in %s' % (cell.possibles, cell.position))
-                row_col = self.row_col_for_cell(c)
-                single_val = list(cell.possibles)[0]
-                for pos in row_col:
-                    try:
-                        previous = list(self.cells[pos].possibles)
-                        self.cells[pos].possibles.remove(single_val)
-                        #print('Removed %s from cell %s (%s) --> %s' % (
-                        #    single_val, pos, previous,
-                        #    self.cells[pos].possibles))
-                        changed = True
-                        num_removed += 1
-                    except :
-                        continue
-                        #print('  %s not in  cell %s' % (single_val, pos))
-        return changed, num_removed
-                        
-    def apply_doubles(self):
-        # for each cell with two items, check all others in row / column
-        # for same set of possible values.
-        # If there are two such cells, then remove those possibles from
-        # other in that row or column.
-        changed = False
-        num_removed = 0
-        not_removed = 0
-        for c in self.cells:
-            cell = self.cells[c]
-            if len(cell.possibles) == 2:
-                #print('DOUBLE %s in %s' % (cell.possibles, cell.position))
-                row_col = self.row_col_for_cell(c)
-                double_val = cell.possibles
-                double_list = list(double_val)
-                row_items = self.row_for_cell(c)
-                matched = False
-                for pos in row_items:
-                    if self.cells[pos].possibles == double_val:
-                        # print('  MATCHED DOUBLE ROW %s in %s' % (
-                        #cell.possibles, pos))
-                        matched = True
-                if matched:
-                    for pos in row_items:
-                        if self.cells[pos].possibles != double_val: 
-                            for single_val in double_list:
-                                try:
-                                    self.cells[pos].possibles.remove(single_val)
-                                    # print('  --- Removed %s from cell %s --> %s' % (single_val, pos, self.cells[pos].possibles))
-                                    changed = True
-                                    num_removed += 1
-                                except :
-                                    not_removed += 1
-                                    #print('  %s not in  cell %s: %s' % (single_val, pos, self.cells[pos].possibles))                         
-                        
-                matched = None
-                col_items = self.col_for_cell(c)
-                for pos in col_items:
-                    if self.cells[pos].possibles == double_val:
-                        # print('  MATCHED DOUBLE COL %s in %s' % (cell.possibles, pos))
-                        matched = self.cells[pos]
-                if matched:
-                    for pos in col_items:
-                        if self.cells[pos].possibles != double_val: 
-                            for single_val in double_list:
-                                try:
-                                    self.cells[pos].possibles.remove(single_val)
-                                    # print('  --- Removed %s from cell %s --> %s' % (single_val, pos, self.cells[pos].possibles))
-                                    changed = True
-                                    num_removed += 1
-                                except :
-                                    not_removed += 1
-                                    # print('  %s not in  cell %s: %s' % (single_val, pos, self.cells[pos].possibles))                         
-
-        # print('  Doubles %s removed, %s not_removed' % (num_removed, not_removed))
-        return changed, num_removed
-
     def print_row_possibles(self, msg=''):
         if msg:
             print('%s' % (msg))
-        cells = sorted(self.cells.keys())
         index = 0
         for row in range(self.size):
             row_str = []
@@ -576,7 +459,7 @@ class puzzle():
                 label = (col, row)
                 cell = self.cells[label]
                 poss = cell.possibles
-                key = str(poss).replace(', ', '').replace('{','').replace('}','')
+                key = str(poss).replace(', ', '').replace('{', '').replace('}', '')
                 row_str.append('%7s ' % key)
                 index += 1
             print('  %s: %s' % (row, row_str))
@@ -629,86 +512,20 @@ class puzzle():
                 list2.append(cell)
         return list2
 
-    def old_methods(self):
-        # Subsumed by find_n_groups
-        changed, num_removed  = self.apply_singles()
-        if changed:
-            print('1111: %d removed' % num_removed)
-            self.print_row_possibles()
-        else:
-            print('Nothing from apply_singles')
-        print('------ 22222 ----')
-        changed, num_removed = self.apply_doubles()
-        if changed:
-            print('2222: %d removed' % num_removed)
-            self.print_row_possibles()
-        else:
-            print('Nothing from apply_doubles')
-
-
-class testing():
-    def __init__(self):
-        return
-    
-    def test_cage_ops(self):
-        c1 = {"op":"+","value":12,
-              "cells":[{"x":0,"y":0},{"x":1,"y":0},{"x":1,"y":1}]}
-        c2 = {"op":"-","value":3,"cells":[{"x":1,"y":2},{"x":1,"y":3}]}
-        c3 = {"op":"*","value":105,"cells":[{"x":2,"y":0},{"x":2,"y":1},{"x":2,"y":2}]}
-
-        cage1 = cage(c1['op'], c1['value'], c1['cells'], 7, -2)
-
-        print('cage1 before')
-        cage1.print_possibles()
-        print('After')
-        cage1.print_possibles()
-        
-        cage2 = cage(c2['op'], c2['value'], c2['cells'], 7, -2)
-        cage3 = cage(c3['op'], c3['value'], c3['cells'], 7, -3)
-
-
-    def test_reduce_cage(self, index, cage):
-        print('REDUCE_CAGE %s' % (index))
-        cage.print_possibles()
-        cage.reduce_with_operator()
-    
-def main():
-    test_obj = testing()
-    #test_obj.test_cage_ops()
-    #return
-
-    p = puzzle()
-    #p.set_cells(kk_puzzles.puzzle7)
-    #p.set_cells(kk_puzzles.puzzle5)
-    #p.set_cells(kk_puzzles.p5_27_mar)
-    p.set_cells(kk_puzzles.p7_mar2022)
-
-    message = "Start configuration"
-    p.print_row_possibles(message)
-
-    result = p.apply_methods()
-    p.print_row_possibles('All methods applied:')
-
-    # How to know if done?
-    solved = p.check_done()
-    print('DONE = %s' % (solved))
-
-    if not solved:
-        print()
-        # A cell with only two possibles.
-        cells2 = p.find_2cells()
+    def guess2(self):
+        # Try solving by cloning the puzzle and picking values for
+        # cells with two possible values.
+        cells2 = self.find_2cells()
         if not cells2:
             print('!!!!!!! There are no doubles for guessing')
             print('    NEED A BETTER SOLVER FOR THIS ONE!')
             return
         else:
-            print('$$$ There are %d items with 2 possible values for guessing' % (len(cells2)))
+            print('$$$ There are %d items with only 2 values' % (len(cells2)))
         
-        # !!We may need to try guessing with other cells
         solved = False
         guess_index = 0
         while not solved and guess_index < len(cells2):
-            #print('!!! INDEX: %d, CELLS2: %s' % (guess_index, cells2))
             # Guess based on this 2-value cell
             guess1 = cells2[guess_index]
             guess_position = (guess1.position['x'],
@@ -720,7 +537,7 @@ def main():
             message = "\n !!!!!! Clone solving with index %s !!!!!!" % guess_index
             for item in twolist:
                 # Try cloning
-                p2 = copy.deepcopy(p)
+                p2 = copy.deepcopy(self)
                 guess_cell = p2.cells[guess_position]
                 guess_cell.possibles = set([item])
                 p2.print_row_possibles(message)
@@ -737,6 +554,68 @@ def main():
                     print('Whoops! Need to make a different guess')
                     
             guess_index += 1
+        return solved
+
+    def solve_puzzle(self):
+        # Try a solution without guesses
+        message = "Start configuration"
+        self.print_row_possibles(message)
+
+        result = self.apply_methods()
+        self.print_row_possibles('All methods applied')
+
+        # How to know if done?
+        solved = self.check_done()
+        print('DONE = %s' % (solved))
+
+        return solved
+
+
+class Testing():
+    def __init__(self):
+        return
+    
+    def test_cage_ops(self):
+        c1 = {"op":"+","value":12,
+              "cells":[{"x": 0,"y": 0},
+                       {"x": 1,"y": 0},
+                       {"x": 1,"y": 1}]}
+        c2 = {"op":"-","value": 3,"cells":[{"x": 1,"y": 2},
+                                           {"x": 1,"y": 3}]}
+        c3 = {"op":"*","value": 105,"cells":[{"x": 2,"y": 0},
+                                             {"x": 2,"y": 1},
+                                             {"x":2,"y": 2}]}
+
+        cage1 = cage(c1['op'], c1['value'], c1['cells'], 7, -2)
+
+        print('cage1 before')
+        cage1.print_possibles()
+        print('After')
+        cage1.print_possibles()
+        
+        cage2 = cage(c2['op'], c2['value'], c2['cells'], 7, -2)
+        cage2.print_possibles()
+        cage3 = cage(c3['op'], c3['value'], c3['cells'], 7, -3)
+        cage3.print_possibles()
+
+
+def test_reduce_cage(self, index, cage):
+    print('REDUCE_CAGE %s' % (index))
+    cage.print_possibles()
+    cage.reduce_with_operator()
+    
+
+def main():
+    # This one needs lots of than guesses with the 2-possible cells
+    p = Puzzle(kk_puzzles.p7_mar2022)
+    #p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
+    #p = Puzzle(kk_puzzles.puzzle5)
+    #p = Puzzle(kk_puzzles.p5_27_mar)
+
+    solved = p.solve_puzzle()
+    if not solved:
+        p.guess2()
+
 
 if __name__ == '__main__':
     main()
