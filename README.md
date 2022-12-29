@@ -92,6 +92,10 @@ The file kk_puzzles.py contains a list of puzzles from several sources of size 5
 
 To use the testing:
 * On the command line, type
-```` python3 kenkey_test.py````
+````python3 kenke_test.py````
 
-* Verify that all the tests pass.
+* Verify that all the tests pass. This is indicated with the output ````YAY! All regression tests pass!````
+
+Note that the the tests also print information on how many applications of constraints, rules, cycles, and guesses were needed to solve.
+
+Note that new Kenken JSON data added to the kk_puzzles.py file may also be added to the list regression_puzzles.
