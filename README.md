@@ -87,3 +87,11 @@ When the process described above doesn't reduce all cells to just one value, the
 
   * Note: a similar guessing method could be tried for each of the 3 values in triple-value cells. This is not yet implemented, however.
   
+# Regression testing
+The file kk_puzzles.py contains a list of puzzles from several sources of size 5, 7, and 9. These are all known to be solvable with this method, and may be used as tests to detect if changes to kenken.py break the solver.
+
+To use the testing:
+* On the command line, type
+```` python3 kenkey_test.py````
+
+* Verify that all the tests pass.
