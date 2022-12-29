@@ -3,7 +3,7 @@ This is a Python solver for KenKen using rules and patterns. It starts with a se
 
 Using this approach, even large puzzles can be be processed quickly without trying every possible value in every cell.
 
-##  To use this solve:
+##  To use this solver:
 1. Pick a puzzle to solve. Note that http://www.kenkenpuzzle.com/game is a good source of
    new puzzles.
 
