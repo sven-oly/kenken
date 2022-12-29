@@ -92,12 +92,20 @@ def start_cell_values(num_cells, op, val, max_val):
         nums = sub_possibles(val, max_val)
     elif op == "/":
         nums = div_possibles(val, max_val)
-    else:
+    elif op == '=':
         nums = {val}
+    else:
+        raise InvalidOperatorError
     return nums
 
 
+class InvalidOperatorError(BaseException):
+    # Raised when an invalid operation is specified for a cage.
+    pass
+
+
 class LastRemovedError(BaseException):
+    # Raised when the last value in a cell would be removed.
     pass
     
 
@@ -208,7 +216,7 @@ class Cage:
             new_cell = Cell(pos, self)
             new_cell.possibles = start_values.copy()
             self.cell_list.append(new_cell)
-            
+
     def is_linear(self, cells_to_check=None):
         x_vals = set()
         y_vals = set()
@@ -256,36 +264,41 @@ class Puzzle:
             operator.mul:0,
             operator.sub:0,
             operator.truediv:0,
-            operator.is_:0,
         }
         self.row_reduced_count = 0
         self.col_reduced_count = 0
+
+        self.cells_changed_in_cycle = set()
 
     def set_cells(self, puzzle_json):
         self.size = puzzle_json['width']
         rules = puzzle_json['rules']
         cage_num = 0
-        for rule in rules:
-            new_cage = Cage(
-                rule['op'], rule['value'], rule['cells'], self.size, cage_num)
-            
-            if self.debug > 1:
-                print('New cage %s = %s, %s ' %
-                      (cage_num, rule['op'], rule['value']))
+        try:
+            for rule in rules:
+                new_cage = Cage(
+                    rule['op'], rule['value'], rule['cells'], self.size, cage_num)
 
-            self.cages.append(new_cage)
-
-            # TODO: Check if the cells are linear
-            # Get the cells from this cage
-            cage_cells = new_cage.cell_list
-            for cage_cell in cage_cells:
-                position = (cage_cell.position['x'],
-                            cage_cell.position['y'])
                 if self.debug > 1:
-                    print('  %s: Cage Cell %s, %s' % (
-                        cage_num, position, cage_cell))
-                self.cells[position] = cage_cell
-            cage_num += 1
+                    print('New cage %s = %s, %s ' %
+                          (cage_num, rule['op'], rule['value']))
+
+                self.cages.append(new_cage)
+
+                # TODO: Check if the cells are linear
+                # Get the cells from this cage
+                cage_cells = new_cage.cell_list
+                for cage_cell in cage_cells:
+                    position = (cage_cell.position['x'],
+                                cage_cell.position['y'])
+                    if self.debug > 1:
+                        print('  %s: Cage Cell %s, %s' % (
+                            cage_num, position, cage_cell))
+                    self.cells[position] = cage_cell
+                cage_num += 1
+        except InvalidOperatorError:
+            print('Cannot solve this - bad operator')
+            return
 
     def row_col_for_cell(self, cell):
         # Generates other cells in the row and column of this cell
@@ -376,38 +389,31 @@ class Puzzle:
         # All cells in this row:
         num_removed = 0
         to_reduce = val[0].possibles
-        #print('  $$$ REMOVE {%s} from row %s' % (val[0].possibles, row))
         for col in range(self.size):
             label = (col, row)
             test_cell = self.cells[label]
             if test_cell not in val:
                 new_possibles = test_cell.possibles.difference(to_reduce)
                 if new_possibles != test_cell.possibles:
-                    #print('!!! TRY  ROW REMOVING %s from cell %s (%s)' % (
-                    #    to_reduce, test_cell.position, test_cell))
-                    #print('     OLD = %s, new = %s' % (test_cell.possibles,
-                    #                                new_possibles))
                     num_removed += len(test_cell.possibles) - len(new_possibles)
                     self.cells[label].possibles = new_possibles
+                    self.cells_changed_in_cycle.add(self.cells[label])
         return num_removed
                 
     def reduce_col_cells(self, col, val):
         # All cells in this row:
         to_reduce = val[0].possibles
         num_removed = 0 
-        #return num_removed  ## TEMPORARY!!!
         for row in range(self.size):
             label = (col, row)
             test_cell = self.cells[label]
             if test_cell not in val:
                 new_possibles = test_cell.possibles.difference(to_reduce)
                 if new_possibles != test_cell.possibles:
-                    #print('  COL REMOVING %s from cell %s (%s)' % (
-                    #    to_reduce, test_cell.position, test_cell))
-                    #print('     OLD = %s, new = %s' % (test_cell.possibles,
-                    #                                new_possibles))
                     num_removed += len(test_cell.possibles) - len(new_possibles)
                     self.cells[label].possibles = new_possibles
+                    self.cells_changed_in_cycle.add(self.cells[label])
+
         return num_removed
                 
     def find_n_groups(self):
@@ -484,6 +490,8 @@ class Puzzle:
                         groups[rank][key].append(gsub_cell)
 
     def print_row_possibles(self, msg=''):
+        bold_start = "\033[1m"
+        bold_stop = "\033[0;0m"
         if msg:
             print('%s' % (msg))
         index = 0
@@ -495,9 +503,13 @@ class Puzzle:
                 cell = self.cells[label]
                 poss = cell.possibles
                 key = str(poss).replace(', ', '').replace('{', '').replace('}', '')
-                row_str.append(key.center(self.size))
+                if cell in self.cells_changed_in_cycle:
+                    # Is there a way to emphasize this?
+                    row_str.append(('-' + key + '-').center(self.size+2))
+                else:
+                    row_str.append((' ' + key + ' ').center(self.size+2))
                 index += 1
-            print('  %s: %s' % (row, ' '.join(row_str)))
+            print('  %s: %s' % (row, ''.join(row_str)))
 
     def print_cell_possibles(self):
         cells = sorted(self.cells.keys())
@@ -526,11 +538,13 @@ class Puzzle:
         self.cycles_applied = 0
         try:
             while changed:
+                self.cells_changed_in_cycle = set()  # In this cycle
+
                 num_removed = self.find_n_groups()
                 rule_changed, rules_num_removed = self.apply_rules()
                 if not self.test_only:
-                    print('---- Cycle %s: removed %d with groups, %d with rules' % (
-                    cycle, num_removed, rules_num_removed))
+                    print('---- Cycle %s: %d cells changed. Removed %d values with groups, %d with rules' % (
+                    cycle, len(self.cells_changed_in_cycle), num_removed, rules_num_removed))
                 if num_removed == 0 and rules_num_removed == 0:
                     changed = False
                 else:
