@@ -356,9 +356,6 @@ class Puzzle:
             # look for value == rank
             for key, val in group.items():
                 if len(val) == rank:
-                    # if len(val) > 2:
-                    #     print('@@@@ REDUCING %d items in column %s' %
-                    #           (len(val), col))
                     num_removed += self.reduce_col_cells(col, val)
             rank += 1
         return num_removed
@@ -532,7 +529,7 @@ class Puzzle:
                 num_removed = self.find_n_groups()
                 rule_changed, rules_num_removed = self.apply_rules()
                 if not self.test_only:
-                    print('---- Cycle %s:  groups %d, rules %d' % (
+                    print('---- Cycle %s: removed %d with groups, %d with rules' % (
                     cycle, num_removed, rules_num_removed))
                 if num_removed == 0 and rules_num_removed == 0:
                     changed = False
@@ -581,12 +578,14 @@ class Puzzle:
                 print('GUESS from cell2[%d] %s: %s possible' % (
                     guess_index, guess_position, twolist))
             # Remove the first and try
-            message = "\n !!!!!! Clone solving with index %s !!!!!!" % guess_index
+            message = "\n !!!!!! Trying guess # %s !!!!!!" % guess_index
             for item in twolist:
                 # Try cloning
                 p2 = copy.deepcopy(self)
                 guess_cell = p2.cells[guess_position]
                 guess_cell.possibles = {item}
+                print('  GUESS value %s in cell %s' % (
+                    guess_cell.possibles, guess_cell.position))
                 if not self.test_only:
                     p2.print_row_possibles(message)
                 result = p2.apply_methods()
