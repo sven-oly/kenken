@@ -558,20 +558,20 @@ class Puzzle:
                 print('FOUND LAST REMOVED ERROR!!!')
             return False
 
-    def find_2cells(self):
-        # Return all sells with only two possible values
-        list2 = []
+    def find_ncells(self, nsize):
+        # Return all sells with only N possible values
+        list_n = []
         for pos, cell in self.cells.items():
-            if len(cell.possibles) == 2:
-                list2.append(cell)
-        return list2
+            if len(cell.possibles) == nsize:
+                list_n.append(cell)
+        return list_n
 
     def guess2(self):
         # Try solving by cloning the puzzle and picking values for
         # cells with two possible values.
         # Returns the solved value and the last clone made
         self.num_guesses_made = 0
-        cells2 = self.find_2cells()
+        cells2 = self.find_ncells(2)  # Note that this could be extended to N cells
         if not cells2:
             print('!!!!!!! There are no doubles for guessing')
             print('    NEED A BETTER SOLVER FOR THIS ONE!')
@@ -594,11 +594,12 @@ class Puzzle:
             # Remove the first and try
             message = "\n !!!!!! Trying guess # %s !!!!!!" % guess_index
             for item in twolist:
+                self.num_guesses_made += 1
                 # Try cloning
                 p2 = copy.deepcopy(self)
                 guess_cell = p2.cells[guess_position]
                 guess_cell.possibles = {item}
-                print('  GUESS value %s in cell %s' % (
+                print('    GUESS value %s in cell %s' % (
                     guess_cell.possibles, guess_cell.position))
                 if not self.test_only:
                     p2.print_row_possibles(message)
@@ -615,9 +616,8 @@ class Puzzle:
                 else:
                     if not self.test_only:
                         print('Whoops! Need to make a different guess')
-                    
+
             guess_index += 1
-            self.num_guesses_made += 1
         return solved, p2
 
     def solve_puzzle(self):
@@ -640,16 +640,19 @@ class Puzzle:
     def show_statistics(self, message):
         # Show number of reductions by type
         print('%s' % message)
-        print('  Cage reductions: %d' % self.cage_reduced_count)
+        print('    Cage reductions: %d' % self.cage_reduced_count)
         # Reduction detail
         reduce_types = []
         for key, num in self.cage_reduction_by_op.items():
             reduce_types.append('%s %d' % (reverse_op_map[key], num))
-        print('  Cage reductions: %d: %s' % (
+        print('    Cage reductions: %d: %s' % (
             self.cage_reduced_count, ', '.join(reduce_types)))
-        print('  Row reductions: %d' % self.row_reduced_count)
-        print('  Column reductions: %d' % self.col_reduced_count)
-        print('  %d Guesses, %d cycles' % (self.num_guesses_made, self.num_cycles))
+        print('    Row reductions: %d' % self.row_reduced_count)
+        print('    Column reductions: %d' % self.col_reduced_count)
+        if self.num_guesses_made <= 0:
+            print('    Before guessing, %d cycles' % (self.num_cycles))
+        else:
+            print('    Applied %d guesses, %d cycles' % (self.num_guesses_made, self.num_cycles))
 
 
 def main():

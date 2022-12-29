@@ -47,7 +47,7 @@ def regression_test():
       solved, p2 = p.guess2()
       if solved:
           print('  ++++ SOLVED with %d guesses' % (p.num_guesses_made))
-          p2.show_statistics('  ++++ Last guess')
+          p2.show_statistics('  With the final guess:')
     if not solved:
       all_passed = False
       print('    $$$$$$$$$$$$ Cannot solve %s' % (puzz['name']))
