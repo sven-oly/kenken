@@ -14,12 +14,15 @@
 # cwcornelius@gmail.com
 
 import kk_puzzles
+import kenken_args
 
+import argparse
 import copy
 import functools
 import itertools
 import math
 import operator
+import sys
 
 # https://stackoverflow.com/questions/798854/all-combinations-of-a-list-of-lists
 # https://tutorial.eyehunts.com/python/python-product-of-list-example-code/
@@ -32,6 +35,9 @@ operator_map = {'+': operator.add,
                 '=': operator.is_,
                 }
 
+reverse_op_map = {}
+for key, val in operator_map.items():
+    reverse_op_map[val] = key
 
 def factor_n(val, max_val, num_cells=2):
     # For multiply cage, return set of all possible factors in num_cells.
@@ -87,7 +93,7 @@ def start_cell_values(num_cells, op, val, max_val):
     elif op == "/":
         nums = div_possibles(val, max_val)
     else:
-        nums = set([val])
+        nums = {val}
     return nums
 
 
@@ -183,7 +189,8 @@ class Cage:
                 combos, c.possibles, value)
 
             if len(new_possibles) == 0:
-                print(' REMOVING LAST ONE from %s %s' % (index, old_possibles))
+                if self.debug > 1:
+                    print(' REMOVING LAST ONE from %s %s' % (index, old_possibles))
                 raise LastRemovedError
 
             if new_possibles != old_possibles:
@@ -232,6 +239,7 @@ class Puzzle:
         self.cells = {}  # Keys are (M,N), value is set of possible values.
         self.cages = []
         self.debug = 1
+        self.test_only = False  # Only print if the solution can be found
         if puzzle_json:
             self.set_cells(puzzle_json)
 
@@ -239,8 +247,20 @@ class Puzzle:
         self.singles_removed = 0
         self.doubles_removed = 0
         self.num_guesses_made = 0
+        self.num_cycles = 0
+        self.show_detail = False
 
-        
+        self.cage_reduced_count = 0
+        self.cage_reduction_by_op = {
+            operator.add:0,
+            operator.mul:0,
+            operator.sub:0,
+            operator.truediv:0,
+            operator.is_:0,
+        }
+        self.row_reduced_count = 0
+        self.col_reduced_count = 0
+
     def set_cells(self, puzzle_json):
         self.size = puzzle_json['width']
         rules = puzzle_json['rules']
@@ -307,6 +327,10 @@ class Puzzle:
             changed_this, num_in_last = cage.reduce_with_operator()
     
             if changed_this:
+                self.cage_reduction_by_op[cage.operator] += 1
+                self.cage_reduced_count += 1
+                if self.show_detail:
+                    print('  -- CAGE REDUCED %s, %s' % (cage.operator, cage.value))
                 num_changed += num_in_last
                 changed = True
         return changed, num_changed
@@ -403,7 +427,13 @@ class Puzzle:
                 self.update_groups(groups, row, col)
             self.detect_hidden_triples(groups, 'COL', col)
             self.detect_hidden_quads(groups, 'col', col)
-            num_removed += self.reduce_col(col, groups)
+            num_reduced = self.reduce_col(col, groups)
+            if num_reduced > 0:
+                self.col_reduced_count += 1
+                if self.show_detail:
+                    print('  -- COL REDUCED %d, col %s: %s' % (
+                        num_reduced, col, groups))
+            num_removed += num_reduced
                 
         for row in range(self.size):
             groups = []
@@ -414,7 +444,13 @@ class Puzzle:
                 self.update_groups(groups, row, col)
             self.detect_hidden_triples(groups, 'ROW', row)
             self.detect_hidden_quads(groups, 'ROW', row)
-            num_removed += self.reduce_row(row, groups)
+            num_reduced = self.reduce_row(row, groups)
+            if num_reduced > 0:
+                self.row_reduced_count += 1
+                if self.show_detail:
+                    print('  -- ROW REDUCED %d, row %s: %s' % (
+                        num_reduced, row, groups))
+            num_removed += num_reduced
         return num_removed
 
     def detect_hidden_triples(self, groups, row_col, index):
@@ -433,21 +469,22 @@ class Puzzle:
     def detect_hidden_quads(self, groups, row_col, index):
         # For sets of 1234, 1234, 1234, 123 promote to a quad constraint
         rank = 4
+        sub_rank = rank - 1
         if not groups[rank]:
             return
         for key, cells3 in groups[rank].items():
             if len(cells3) == rank - 1:
-                triple = cells3[0].possibles
+                quad = cells3[0].possibles
                 cell3_positions = [cell.position for cell in cells3]
-                for k2, g2 in groups[2].items():
-                    g2_cell = g2[0]
-                    if len(g2) == 1 and g2_cell.possibles.issubset(triple):
+                for k2, gsub in groups[sub_rank].items():
+                    gsub_cell = gsub[0]
+                    if len(gsub) == 1 and g2_cell.possibles.issubset(quad):
                         print('DETECT RANK %d GROUP in %s[%d] for %s: %s' %
                               (
-                                  rank, row_col, index, triple, cell3_positions))
+                                  rank, row_col, index, quad, cell3_positions))
                         print('  FOUND A DOUBLE or TRIPLE that fits: %s at %s' % (
-                            g2_cell.possibles, g2_cell.position))
-                        groups[rank][key].append(g2_cell)
+                            gsub_cell.possibles, gsub_cell.position))
+                        groups[rank][key].append(gsub_cell)
 
     def print_row_possibles(self, msg=''):
         if msg:
@@ -461,7 +498,7 @@ class Puzzle:
                 cell = self.cells[label]
                 poss = cell.possibles
                 key = str(poss).replace(', ', '').replace('{', '').replace('}', '')
-                row_str.append(fmt_pattern % key)
+                row_str.append(key.center(self.size))
                 index += 1
             print('  %s: %s' % (row, ' '.join(row_str)))
 
@@ -480,29 +517,34 @@ class Puzzle:
             else:
                 num_resolved += 1
         done = (number_left == 0)
-        print('$$ Done = %s. %d cells resolved, %d unresolved' % (
-            done, num_resolved, number_left))
+        if not self.test_only:
+            print('$$ Done = %s. %d cells resolved, %d unresolved' % (
+                done, num_resolved, number_left))
         return done
 
     def apply_methods(self):
         # Apply the methods until either no change takes place.
         cycle = 0
         changed = True
+        self.cycles_applied = 0
         try:
             while changed:
-                print('---- Cycle %s --------' % cycle) 
                 num_removed = self.find_n_groups()
                 rule_changed, rules_num_removed = self.apply_rules()
+                if not self.test_only:
+                    print('---- Cycle %s:  groups %d, rules %d' % (
+                    cycle, num_removed, rules_num_removed))
                 if num_removed == 0 and rules_num_removed == 0:
                     changed = False
                 else:
-                    print('--- REMOVED N_GROUPS %d, RULES %d' % (
-                        num_removed, rules_num_removed))
-                    self.print_row_possibles()
+                    if not self.test_only:
+                        self.print_row_possibles()
                 cycle += 1
+                self.num_cycles += 1
             return True
         except LastRemovedError:
-            print('FOUND LAST REMOVED ERROR!!!')
+            if not self.test_only:
+                print('FOUND LAST REMOVED ERROR!!!')
             return False
 
     def find_2cells(self):
@@ -516,13 +558,16 @@ class Puzzle:
     def guess2(self):
         # Try solving by cloning the puzzle and picking values for
         # cells with two possible values.
+        # Returns the solved value and the last clone made
+        self.num_guesses_made = 0
         cells2 = self.find_2cells()
         if not cells2:
             print('!!!!!!! There are no doubles for guessing')
             print('    NEED A BETTER SOLVER FOR THIS ONE!')
             return
         else:
-            print('$$$ There are %d items with only 2 values' % (len(cells2)))
+            if self.show_detail:
+                print('$$$ There are %d items with only 2 values' % (len(cells2)))
         
         solved = False
         guess_index = 0
@@ -532,79 +577,67 @@ class Puzzle:
             guess_position = (guess1.position['x'],
                               guess1.position['y'])
             twolist = list(guess1.possibles)
-            print('GUESS from cell2[%d] %s: %s possible' % (
-                guess_index, guess_position, twolist))
+            if not self.test_only:
+                print('GUESS from cell2[%d] %s: %s possible' % (
+                    guess_index, guess_position, twolist))
             # Remove the first and try
             message = "\n !!!!!! Clone solving with index %s !!!!!!" % guess_index
             for item in twolist:
                 # Try cloning
                 p2 = copy.deepcopy(self)
                 guess_cell = p2.cells[guess_position]
-                guess_cell.possibles = set([item])
-                p2.print_row_possibles(message)
+                guess_cell.possibles = {item}
+                if not self.test_only:
+                    p2.print_row_possibles(message)
                 result = p2.apply_methods()
                 if not result:
-                    print('!!!! ERROR: Cannot solve this one')
+                    if not self.test_only:
+                        print('!!!! ERROR: Cannot solve this one')
                 solved = p2.check_done()
                 # p2.print_row_possibles('As much as can be done...')
-                print('DONE = %s' % (solved))
                 if solved:
-                    print('ALL FINISHED. This guess worked!')
-                    return
+                    if not self.test_only:
+                        print('ALL FINISHED. This guess worked!')
+                    return solved, p2
                 else:
-                    print('Whoops! Need to make a different guess')
+                    if not self.test_only:
+                        print('Whoops! Need to make a different guess')
                     
             guess_index += 1
-        return solved
+            self.num_guesses_made += 1
+        return solved, p2
 
     def solve_puzzle(self):
         # Try a solution without guesses
         message = "Start configuration"
-        self.print_row_possibles(message)
+        if not self.test_only:
+            self.print_row_possibles(message)
 
         result = self.apply_methods()
-        self.print_row_possibles('All methods applied')
+        if not self.test_only:
+            self.print_row_possibles('All methods applied')
 
         # How to know if done?
         solved = self.check_done()
-        print('DONE = %s' % (solved))
+        if not self.test_only:
+            print('DONE = %s' % (solved))
 
         return solved
 
+    def show_statistics(self, message):
+        # Show number of reductions by type
+        print('%s' % message)
+        print('  Cage reductions: %d' % self.cage_reduced_count)
+        # Reduction detail
+        reduce_types = []
+        for key, num in self.cage_reduction_by_op.items():
+            reduce_types.append('%s %d' % (reverse_op_map[key], num))
+        print('  Cage reductions: %d: %s' % (
+            self.cage_reduced_count, ', '.join(reduce_types)))
+        print('  Row reductions: %d' % self.row_reduced_count)
+        print('  Column reductions: %d' % self.col_reduced_count)
+        print('  %d Guesses, %d cycles' % (self.num_guesses_made, self.num_cycles))
 
-class Testing():
-    def __init__(self):
-        return
-    
-    def test_cage_ops(self):
-        c1 = {"op":"+","value":12,
-              "cells":[{"x": 0,"y": 0},
-                       {"x": 1,"y": 0},
-                       {"x": 1,"y": 1}]}
-        c2 = {"op":"-","value": 3,"cells":[{"x": 1,"y": 2},
-                                           {"x": 1,"y": 3}]}
-        c3 = {"op":"*","value": 105,"cells":[{"x": 2,"y": 0},
-                                             {"x": 2,"y": 1},
-                                             {"x":2,"y": 2}]}
-
-        cage1 = cage(c1['op'], c1['value'], c1['cells'], 7, -2)
-
-        print('cage1 before')
-        cage1.print_possibles()
-        print('After')
-        cage1.print_possibles()
-        
-        cage2 = cage(c2['op'], c2['value'], c2['cells'], 7, -2)
-        cage2.print_possibles()
-        cage3 = cage(c3['op'], c3['value'], c3['cells'], 7, -3)
-        cage3.print_possibles()
-
-
-def test_reduce_cage(self, index, cage):
-    print('REDUCE_CAGE %s' % (index))
-    cage.print_possibles()
-    cage.reduce_with_operator()
-    
 
 def main():
     # This one needs lots of than guesses with the 2-possible cells
@@ -615,8 +648,10 @@ def main():
     #p = Puzzle(kk_puzzles.p5_27_mar)
 
     solved = p.solve_puzzle()
+    p.show_statistics('Before guessing')
     if not solved:
-        p.guess2()
+        status, p2 = p.guess2()
+        p2.show_statistics('After guesses')
 
 
 if __name__ == '__main__':
