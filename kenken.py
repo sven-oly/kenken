@@ -54,10 +54,30 @@ def factor_n(val, max_val, num_cells=2):
     return set(factors)
 
 
-def add_possibles(val, max_val, num_cells):
+def add_possibles(val, max_val, num_cells, linear=True):
     # What values can add the total in N cells
     # TODO: Consider number of cells
+    min_poss = max_poss = 0
+    if linear:
+        sum_biggest = 0
+        sum_smallest = 0
+        small = 1
+        for v in range(max_val - num_cells + 2, max_val + 1):
+            sum_biggest += v
+            sum_smallest += small
+            small += 1
+        diff = val - sum_biggest
+        min_poss = max(diff, 1)
+        max_poss = min(max_val, val - sum_smallest)
+        possibles = set([n for n in range(min_poss, max_poss + 1)])
+        return possibles
+
+    # This is a non-linear cage. More complicated.
     top = min(val - 1, max_val)  # Need to consider # cells
+    if max_poss !=0 and max_poss != top:
+        check = 1
+    if min_poss > 1:
+        check = 2
     possibles = set([n for n in range(1, top + 1)])
     if num_cells == 2 and val % 2 == 0:
         # Special case
@@ -83,11 +103,11 @@ def div_possibles(val, max_val):
     return result
 
 
-def start_cell_values(num_cells, op, val, max_val):
+def start_cell_values(num_cells, op, val, max_val, linear=True):
     if op == "*":
         nums = factor_n(val, max_val, num_cells)
     elif op == "+":
-        nums = add_possibles(val, max_val, num_cells)
+        nums = add_possibles(val, max_val, num_cells, linear)
     elif op == "-":
         nums = sub_possibles(val, max_val)
     elif op == "/":
@@ -128,10 +148,10 @@ class Cage:
         self.cell_list = []
         self.max = grid_size
         self.linear = False
+        self.is_linear(cell_data)
         self.set_up_cell_list(cell_data)
         self.debug = 1
         self.operator = operator_map[op]
-        self.is_linear()
 
     def is_combo_linear(self, cell_list):
         # Check if the cells in this set are in a line.
@@ -210,7 +230,7 @@ class Cage:
         
     def set_up_cell_list(self, cell_data):
         start_values = start_cell_values(
-            len(cell_data), self.op, self.value, self.max)
+            len(cell_data), self.op, self.value, self.max, self.linear)
         for pos in cell_data:
             # Create a new cell object
             new_cell = Cell(pos, self)
@@ -223,8 +243,12 @@ class Cage:
         if cells_to_check is None:
             cells_to_check = self.cell_list
         for cell in cells_to_check:
-            x_vals.add(cell.position['x'])
-            y_vals.add(cell.position['y'])
+            try:
+                x_vals.add(cell.position['x'])
+                y_vals.add(cell.position['y'])
+            except:
+                x_vals.add(cell['x'])
+                y_vals.add(cell['y'])
         self.linear = (len(x_vals) == 1 or len(y_vals) == 1)
 
     def print_possibles(self):
@@ -250,6 +274,12 @@ class Puzzle:
         self.test_only = False  # Only print if the solution can be found
         if puzzle_json:
             self.set_cells(puzzle_json)
+
+        # From command line parsing
+        self.args = None
+        self.onestep = None
+        self.showsteps = None
+        self.userinput = None
 
         # For statistics
         self.singles_removed = 0
@@ -300,6 +330,11 @@ class Puzzle:
             print('Cannot solve this - bad operator')
             return
 
+    def set_args(self, args):
+        self.onestep = args.args.onestep
+        self.showsteps = args.args.showsteps
+        self.userinput = args.args.userinput
+
     def row_col_for_cell(self, cell):
         # Generates other cells in the row and column of this cell
         row = cell[0]
@@ -332,7 +367,35 @@ class Puzzle:
             if f != row:
                 new_cells.append((f, col))
         return new_cells
-    
+
+    def check_must_haves(self):
+        for rowcol in range(0, self.size):
+            for val in range(1, self.size+1):
+                self.check_value_only_in_one_cage_of_row(rowcol, val)
+                self.check_value_only_in_one_cage_of_col(rowcol, val)
+
+        # Do the same for columns.
+
+    def check_value_only_in_one_cage_of_row(self, row, val):
+        cages_with_val = set()
+        for col in range(0, self.size):
+            loc = (col, row)
+            cell = self.cells[loc]
+            if val in cell.possibles:
+                cages_with_val.add(cell.cage)
+        if len(cages_with_val) == 1:
+            check_cage = 1
+
+    def check_value_only_in_one_cage_of_col(self, col, val):
+        cages_with_val = set()
+        for row in range(0, self.size):
+            loc = (col, row)
+            cell = self.cells[loc]
+            if val in cell.possibles:
+                cages_with_val.add(cell.cage)
+        if len(cages_with_val) == 1:
+            check_cage = 1
+
     def apply_rules(self):
         changed = False
         num_changed = 0
@@ -428,8 +491,9 @@ class Puzzle:
                 groups.append(dict())
             for row in range(self.size):
                 self.update_groups(groups, row, col)
-            self.detect_hidden_triples(groups, 'COL', col)
-            self.detect_hidden_quads(groups, 'col', col)
+            self.detect_hidden_triples(groups, 3, 'COL', col)
+            self.detect_hidden_triples(groups, 4, 'COL', col)
+            #self.detect_hidden_quads(groups, 'col', col)
             num_reduced = self.reduce_col(col, groups)
             if num_reduced > 0:
                 self.col_reduced_count += 1
@@ -445,8 +509,9 @@ class Puzzle:
 
             for col in range(self.size):
                 self.update_groups(groups, row, col)
-            self.detect_hidden_triples(groups, 'ROW', row)
-            self.detect_hidden_quads(groups, 'ROW', row)
+            self.detect_hidden_triples(groups, 3, 'ROW', row)
+            self.detect_hidden_triples(groups, 4, 'ROW', row)
+            #self.detect_hidden_quads(groups, 'ROW', row)
             num_reduced = self.reduce_row(row, groups)
             if num_reduced > 0:
                 self.row_reduced_count += 1
@@ -456,18 +521,30 @@ class Puzzle:
             num_removed += num_reduced
         return num_removed
 
-    def detect_hidden_triples(self, groups, row_col, index):
+    def detect_hidden_triples(self, groups, rank, row_col, index):
         # Find patterns of 235, 235, 35 and promote to a triple
-        rank = 3
+        # Also types of 567, 56, 67
         if not groups[rank]:
             return
         for key, cells3 in groups[rank].items():
-            if len(cells3) == 2:
+            # TODO: find all cells whose possibles ar subsets of this one
+            # If the total number of such cells is rank-1, then add these to the
+            # groups[rank][key]
+            if len(cells3) > 0:
                 triple = cells3[0].possibles
+                candidates_to_add = []
                 for k2, g2 in groups[rank-1].items():
                     g2_cell = g2[0]
                     if len(g2) == 1 and g2_cell.possibles.issubset(triple):
-                        groups[rank][key].append(g2_cell)
+                        candidates_to_add.append(g2_cell)
+                        #groups[rank][key].append(g2_cell)
+                if candidates_to_add:
+                    for c in candidates_to_add:
+                        groups[rank][key].append(c)
+                #if len(groups[rank][key]) == rank:
+                #    print('NOW WE HAVE 3 with %s ' %
+                #          [s.possibles for s in groups[rank][key]])
+
 
     def detect_hidden_quads(self, groups, row_col, index):
         # For sets of 1234, 1234, 1234, 123 promote to a quad constraint
@@ -545,6 +622,7 @@ class Puzzle:
                 if not self.test_only:
                     print('---- Cycle %s: %d cells changed. Removed %d values with groups, %d with rules' % (
                     cycle, len(self.cells_changed_in_cycle), num_removed, rules_num_removed))
+                self.check_must_haves()
                 if num_removed == 0 and rules_num_removed == 0:
                     changed = False
                 else:
@@ -656,14 +734,23 @@ class Puzzle:
 
 
 def main():
+    # Get instruction from the command line
+    arg_info = kenken_args.ArgParse()
     # This one needs lots of than guesses with the 2-possible cells
     #p = Puzzle(kk_puzzles.p7_mar2022)
-    p= Puzzle(kk_puzzles.puzzle9)
+    #p= Puzzle(kk_puzzles.puzzle9)
+
     #p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
     #p = Puzzle(kk_puzzles.puzzle5)
     #p = Puzzle(kk_puzzles.p5_27_mar)
+    #p = Puzzle(kk_puzzles.p9_39290_hard)
+    p = Puzzle(kk_puzzles.p8_hard)
+    p.set_args(arg_info)
 
     solved = p.solve_puzzle()
+    if p.onestep:
+        input('Enter to continue')
+
     p.show_statistics('Before guessing')
     if not solved:
         status, p2 = p.guess2()
