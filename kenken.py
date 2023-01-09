@@ -18,6 +18,7 @@ import kenken_args
 
 import argparse
 import copy
+from enum import Enum
 import functools
 import itertools
 import math
@@ -36,8 +37,9 @@ operator_map = {'+': operator.add,
                 }
 
 reverse_op_map = {}
-for key, val in operator_map.items():
-    reverse_op_map[val] = key
+for key, val_op in operator_map.items():
+    reverse_op_map[val_op] = key
+
 
 def factor_n(val, max_val, num_cells=2):
     # For multiply cage, return set of all possible factors in num_cells.
@@ -218,7 +220,7 @@ class Cage:
 
             if len(new_possibles) == 0:
                 if self.debug > 1:
-                    print(' REMOVING LAST ONE from %s %s' % (index, old_possibles))
+                    print(' REMOVING LAST ONE from %s %s' % (c.position, old_possibles))
                 raise LastRemovedError
 
             if new_possibles != old_possibles:
@@ -244,9 +246,10 @@ class Cage:
             cells_to_check = self.cell_list
         for cell in cells_to_check:
             try:
+                # So this works for both cell references
                 x_vals.add(cell.position['x'])
                 y_vals.add(cell.position['y'])
-            except:
+            except AttributeError:
                 x_vals.add(cell['x'])
                 y_vals.add(cell['y'])
         self.linear = (len(x_vals) == 1 or len(y_vals) == 1)
@@ -264,6 +267,12 @@ class Cage:
             return False, 0
 
             
+class PuzzResult(Enum):
+    SOLVED = 1        # Have a solution!
+    FAILED = -1       # Inconsistent
+    NOT_RESOLVED = 0  # No more rules to apply
+
+
 class Puzzle:
     def __init__(self, puzzle_json):
         self.rules = None
@@ -634,7 +643,8 @@ class Puzzle:
         except LastRemovedError:
             if not self.test_only:
                 print('FOUND LAST REMOVED ERROR!!!')
-            return False
+                self.print_row_possibles()
+        return False
 
     def find_ncells(self, nsize):
         # Return all sells with only N possible values
@@ -660,6 +670,7 @@ class Puzzle:
         
         solved = False
         guess_index = 0
+        p2 = None
         while not solved and guess_index < len(cells2):
             # Guess based on this 2-value cell
             guess1 = cells2[guess_index]
@@ -697,6 +708,53 @@ class Puzzle:
 
             guess_index += 1
         return solved, p2
+
+    def deep_solve(self, level):
+        # Get the next possible cell with N values (N = 2)
+        N = 2  # The cell size to guess on.
+        guess_cells = self.find_ncells(N)
+        if not guess_cells:
+            print('*** CANNOT GO DEEPER ***')
+            self.print_row_possibles('  STUCK AT LEVEL %d' % (level))
+
+            return PuzzResult.NOT_RESOLVED, level
+        loc = (guess_cells[0].position['x'], guess_cells[0].position['y'])
+        possible_list = list(guess_cells[0].possibles)
+        print("%sL%s DEEP GUESS CELL at %s has %s" % (
+            level*'  ', level, loc, possible_list))
+        for guess in possible_list:
+            print('  %sGUESS Level %s, cell %s guess = %s' %
+                  (level*'  ',level, loc, guess))
+            # For value in that cell:
+            #   Clone current
+            new_puzz = copy.deepcopy(self)
+            #   Set value of selected cell to ith possible
+            set_cell = new_puzz.cells[loc]
+            set_cell.possibles = set([guess])
+            new_puzz.test_only = 1
+            #   check = apply_methods
+            result = new_puzz.apply_methods()
+            #   if check == inconsistent, return failed
+
+            solved = new_puzz.check_done()
+            if solved:
+                #   if check == solved, return solved
+                print('%s!!! SOLVED AT LEVEL %d' % (level*'  ', level))
+                new_puzz.print_row_possibles('FINAL SOLUTION AT LEVEL %d' % (level))
+                return PuzzResult.SOLVED, level
+            # Go deeper!
+            if result:
+                next_result, down_level = new_puzz.deep_solve(level+1)
+                if next_result == PuzzResult.SOLVED:
+                    return PuzzResult.SOLVED, down_level
+                solved = new_puzz.check_done()
+                if solved:
+                    return SOLVED, down_level
+            else:
+                print('  %sGUESS level %s FAILED with %s in cell %s' %
+                      (level*'  ', level, guess, loc))
+        return PuzzResult.FAILED, level
+
 
     def solve_puzzle(self):
         # Try a solution without guesses
@@ -743,16 +801,29 @@ def main():
     #p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
     #p = Puzzle(kk_puzzles.puzzle5)
     #p = Puzzle(kk_puzzles.p5_27_mar)
-    #p = Puzzle(kk_puzzles.p9_39290_hard)
-    p = Puzzle(kk_puzzles.p8_hard)
+    p = Puzzle(kk_puzzles.p9_39290_hard)  # Can't solve yet
+    #p = Puzzle(kk_puzzles.p8_hard)  # Solved with deep_solve!
     p.set_args(arg_info)
 
     solved = p.solve_puzzle()
-    if p.onestep:
-        input('Enter to continue')
+    p.show_statistics('Before deep solve')
 
-    p.show_statistics('Before guessing')
+    in_string = ''
+    if p.onestep:
+        in_string = input('"q" to quit. Anything else to continue: ')
+        print('')
+    if in_string == "q":
+        # Quit
+        return
+
+    level = -1
     if not solved:
+        # OK, try going deeper
+        result, level = p.deep_solve(1)
+    if result == PuzzResult.SOLVED:
+        print('!!!!! DEEP SOLVE WORKED at level %s' % (level))
+    else:
+        p.show_statistics('Before guessing')
         status, p2 = p.guess2()
         p2.show_statistics('After guesses')
 
