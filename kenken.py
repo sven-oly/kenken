@@ -52,14 +52,14 @@ def factor_n(val, max_val, num_cells=2):
     root = math.sqrt(val)
     if num_cells == 2 and root in factors:
         # Special case - it can't be the square root
-        factors.remove(root)
+        factors.remove(int(root))
     return set(factors)
 
 
 def add_possibles(val, max_val, num_cells, linear=True):
     # What values can add the total in N cells
     # TODO: Consider number of cells
-    min_poss = max_poss = 0
+    max_poss = 0
     if linear:
         sum_biggest = 0
         sum_smallest = 0
@@ -76,10 +76,8 @@ def add_possibles(val, max_val, num_cells, linear=True):
 
     # This is a non-linear cage. More complicated.
     top = min(val - 1, max_val)  # Need to consider # cells
-    if max_poss !=0 and max_poss != top:
+    if max_poss != 0 and max_poss != top:
         check = 1
-    if min_poss > 1:
-        check = 2
     possibles = set([n for n in range(1, top + 1)])
     if num_cells == 2 and val % 2 == 0:
         # Special case
@@ -289,6 +287,8 @@ class Puzzle:
         self.onestep = None
         self.showsteps = None
         self.userinput = None
+        self.show_all_reductions = False
+        self.must_haves = True
 
         # For statistics
         self.singles_removed = 0
@@ -299,10 +299,10 @@ class Puzzle:
 
         self.cage_reduced_count = 0
         self.cage_reduction_by_op = {
-            operator.add:0,
-            operator.mul:0,
-            operator.sub:0,
-            operator.truediv:0,
+            operator.add: 0,
+            operator.mul: 0,
+            operator.sub: 0,
+            operator.truediv: 0,
         }
         self.row_reduced_count = 0
         self.col_reduced_count = 0
@@ -341,8 +341,26 @@ class Puzzle:
 
     def set_args(self, args):
         self.onestep = args.args.onestep
-        self.showsteps = args.args.showsteps
+        self.show_detail = args.args.show_detail
         self.userinput = args.args.userinput
+        self.show_all_reductions = args.args.show_all_reductions
+
+    def is_valid(self):
+        # Check if the solution so far actually is legal
+        if self.check_done():
+            # Make sure all the values are in each row and column
+            for row in range(self.size):
+                vals = set()
+                for col in range(self.size):
+                    loc = (col, row)
+                    cell = self.cells[loc]
+                    val = cell.possibles[0]
+                    vals.add(val)
+                if len(vals) != self.size:
+                    return False
+
+        # TODO
+        return True
 
     def row_col_for_cell(self, cell):
         # Generates other cells in the row and column of this cell
@@ -378,32 +396,62 @@ class Puzzle:
         return new_cells
 
     def check_must_haves(self):
+        # Can anything be reduced if there is only one possible cell or cage?
+        num_reduced = 0
         for rowcol in range(0, self.size):
             for val in range(1, self.size+1):
-                self.check_value_only_in_one_cage_of_row(rowcol, val)
-                self.check_value_only_in_one_cage_of_col(rowcol, val)
-
-        # Do the same for columns.
+                # !!! What's wrong here?
+                # num_reduced += self.check_value_only_in_one_cage_of_row(rowcol, val)
+                num_reduced += self.check_value_only_in_one_cage_of_col(rowcol, val)
+        return num_reduced
 
     def check_value_only_in_one_cage_of_row(self, row, val):
+        # Checks if a value is in only one cage or cell in a row.
+        num_reduced = 0
         cages_with_val = set()
+        cells_with_val = []
         for col in range(0, self.size):
             loc = (col, row)
             cell = self.cells[loc]
             if val in cell.possibles:
                 cages_with_val.add(cell.cage)
+                cells_with_val.append(cell)
         if len(cages_with_val) == 1:
             check_cage = 1
+        if len(cells_with_val) == 1:
+            this_cell = cells_with_val[0]
+            if len(this_cell.possibles) > 1:
+                # Set this value!
+                this_cell.possibles = {val}   # set([val])
+                num_reduced += 1
+                if self.show_detail:
+                    print("  -- MUST HAVE %s in row %s, cell %s" %
+                          (val, row, this_cell.position))
+        return num_reduced
 
     def check_value_only_in_one_cage_of_col(self, col, val):
+        num_reduced = 0
         cages_with_val = set()
+        cells_with_val = []
         for row in range(0, self.size):
             loc = (col, row)
             cell = self.cells[loc]
             if val in cell.possibles:
                 cages_with_val.add(cell.cage)
+                cells_with_val.append(cell)
         if len(cages_with_val) == 1:
+            # What can we do with this?
             check_cage = 1
+        if len(cells_with_val) == 1:
+            this_cell = cells_with_val[0]
+            if len(this_cell.possibles) > 1:
+                # Set this value!
+                this_cell.possibles = {val}  # set([val])
+                num_reduced += 1
+                if self.show_detail:
+                    print("  -- MUST HAVE %s in col %s, cell %s" %
+                          (val, col, this_cell.position))
+        return num_reduced
 
     def apply_rules(self):
         changed = False
@@ -415,7 +463,8 @@ class Puzzle:
                 self.cage_reduction_by_op[cage.operator] += 1
                 self.cage_reduced_count += 1
                 if self.show_detail:
-                    print('  -- CAGE REDUCED %s, %s' % (cage.operator, cage.value))
+                    print('  -- CAGE REDUCED "%s %s"' % (
+                        reverse_op_map[cage.operator], cage.value))
                 num_changed += num_in_last
                 changed = True
         return changed, num_changed
@@ -451,6 +500,7 @@ class Puzzle:
         for group in groups:
             # look for value == rank
             for key, val in group.items():
+                # E.g., 3 cells with same3 possible values
                 if len(val) == rank:
                     # Value is the cells that have the values to be removed
                     num_removed += self.reduce_row_cells(row, val)
@@ -502,12 +552,12 @@ class Puzzle:
                 self.update_groups(groups, row, col)
             self.detect_hidden_triples(groups, 3, 'COL', col)
             self.detect_hidden_triples(groups, 4, 'COL', col)
-            #self.detect_hidden_quads(groups, 'col', col)
+            # self.detect_hidden_quads(groups, 'col', col)
             num_reduced = self.reduce_col(col, groups)
             if num_reduced > 0:
                 self.col_reduced_count += 1
                 if self.show_detail:
-                    print('  -- COL REDUCED %d, col %s: %s' % (
+                    print('  -- COL REDUCED %d items, col %s: %s' % (
                         num_reduced, col, groups))
             num_removed += num_reduced
                 
@@ -520,12 +570,12 @@ class Puzzle:
                 self.update_groups(groups, row, col)
             self.detect_hidden_triples(groups, 3, 'ROW', row)
             self.detect_hidden_triples(groups, 4, 'ROW', row)
-            #self.detect_hidden_quads(groups, 'ROW', row)
+            # self.detect_hidden_quads(groups, 'ROW', row)
             num_reduced = self.reduce_row(row, groups)
             if num_reduced > 0:
                 self.row_reduced_count += 1
                 if self.show_detail:
-                    print('  -- ROW REDUCED %d, row %s: %s' % (
+                    print('  -- ROW REDUCED %d items, row %s: %s' % (
                         num_reduced, row, groups))
             num_removed += num_reduced
         return num_removed
@@ -546,14 +596,13 @@ class Puzzle:
                     g2_cell = g2[0]
                     if len(g2) == 1 and g2_cell.possibles.issubset(triple):
                         candidates_to_add.append(g2_cell)
-                        #groups[rank][key].append(g2_cell)
+                        # groups[rank][key].append(g2_cell)
                 if candidates_to_add:
                     for c in candidates_to_add:
                         groups[rank][key].append(c)
-                #if len(groups[rank][key]) == rank:
+                # if len(groups[rank][key]) == rank:
                 #    print('NOW WE HAVE 3 with %s ' %
                 #          [s.possibles for s in groups[rank][key]])
-
 
     def detect_hidden_quads(self, groups, row_col, index):
         # For sets of 1234, 1234, 1234, 123 promote to a quad constraint
@@ -576,12 +625,9 @@ class Puzzle:
                         groups[rank][key].append(gsub_cell)
 
     def print_row_possibles(self, msg=''):
-        bold_start = "\033[1m"
-        bold_stop = "\033[0;0m"
         if msg:
             print('%s' % (msg))
         index = 0
-        fmt_pattern = '%' + '%d' % self.size + 's'
         for row in range(self.size):
             row_str = []
             for col in range(self.size):
@@ -591,7 +637,7 @@ class Puzzle:
                 key = str(poss).replace(', ', '').replace('{', '').replace('}', '')
                 if cell in self.cells_changed_in_cycle:
                     # Is there a way to emphasize this?
-                    row_str.append(('-' + key + '-').center(self.size+2))
+                    row_str.append(('[' + key + ']').center(self.size+2))
                 else:
                     row_str.append((' ' + key + ' ').center(self.size+2))
                 index += 1
@@ -630,8 +676,10 @@ class Puzzle:
                 rule_changed, rules_num_removed = self.apply_rules()
                 if not self.test_only:
                     print('---- Cycle %s: %d cells changed. Removed %d values with groups, %d with rules' % (
-                    cycle, len(self.cells_changed_in_cycle), num_removed, rules_num_removed))
-                self.check_must_haves()
+                        cycle, len(self.cells_changed_in_cycle), num_removed, rules_num_removed))
+                if self.must_haves:
+                    num_must_haves = self.check_must_haves()
+                    num_removed += num_must_haves
                 if num_removed == 0 and rules_num_removed == 0:
                     changed = False
                 else:
@@ -711,8 +759,8 @@ class Puzzle:
 
     def deep_solve(self, level):
         # Get the next possible cell with N values (N = 2)
-        N = 2  # The cell size to guess on.
-        guess_cells = self.find_ncells(N)
+        n = 3  # The cell size to guess on.
+        guess_cells = self.find_ncells(n)
         if not guess_cells:
             print('*** CANNOT GO DEEPER ***')
             self.print_row_possibles('  STUCK AT LEVEL %d' % (level))
@@ -724,13 +772,13 @@ class Puzzle:
             level*'  ', level, loc, possible_list))
         for guess in possible_list:
             print('  %sGUESS Level %s, cell %s guess = %s' %
-                  (level*'  ',level, loc, guess))
+                  (level*'  ', level, loc, guess))
             # For value in that cell:
             #   Clone current
             new_puzz = copy.deepcopy(self)
             #   Set value of selected cell to ith possible
             set_cell = new_puzz.cells[loc]
-            set_cell.possibles = set([guess])
+            set_cell.possibles = {guess}  # set([guess])
             new_puzz.test_only = 1
             #   check = apply_methods
             result = new_puzz.apply_methods()
@@ -751,10 +799,9 @@ class Puzzle:
                 if solved:
                     return SOLVED, down_level
             else:
-                print('  %sGUESS level %s FAILED with %s in cell %s' %
+                print('  %s  GUESS level %s FAILED with %s in cell %s' %
                       (level*'  ', level, guess, loc))
         return PuzzResult.FAILED, level
-
 
     def solve_puzzle(self):
         # Try a solution without guesses
@@ -768,6 +815,7 @@ class Puzzle:
 
         # How to know if done?
         solved = self.check_done()
+        self.is_valid()
         if not self.test_only:
             print('DONE = %s' % (solved))
 
@@ -795,12 +843,12 @@ def main():
     # Get instruction from the command line
     arg_info = kenken_args.ArgParse()
     # This one needs lots of than guesses with the 2-possible cells
-    #p = Puzzle(kk_puzzles.p7_mar2022)
-    #p= Puzzle(kk_puzzles.puzzle9)
+    # p = Puzzle(kk_puzzles.p7_mar2022)
+    # p= Puzzle(kk_puzzles.puzzle9)
 
-    #p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
-    #p = Puzzle(kk_puzzles.puzzle5)
-    #p = Puzzle(kk_puzzles.p5_27_mar)
+    # p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
+    # p = Puzzle(kk_puzzles.puzzle5)
+    # p = Puzzle(kk_puzzles.p5_27_mar)
     p = Puzzle(kk_puzzles.p9_39290_hard)  # Can't solve yet
     #p = Puzzle(kk_puzzles.p8_hard)  # Solved with deep_solve!
     p.set_args(arg_info)
@@ -820,12 +868,12 @@ def main():
     if not solved:
         # OK, try going deeper
         result, level = p.deep_solve(1)
-    if result == PuzzResult.SOLVED:
-        print('!!!!! DEEP SOLVE WORKED at level %s' % (level))
-    else:
-        p.show_statistics('Before guessing')
-        status, p2 = p.guess2()
-        p2.show_statistics('After guesses')
+        if result == PuzzResult.SOLVED:
+            print('!!!!! DEEP SOLVE WORKED at level %s' % (level))
+        else:
+            p.show_statistics('Before guessing')
+            status, p2 = p.guess2()
+            p2.show_statistics('After guesses')
 
 
 if __name__ == '__main__':
