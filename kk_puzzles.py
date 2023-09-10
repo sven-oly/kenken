@@ -8,6 +8,8 @@
 # 6. Give it the puzzle JSON with the set_cells method.
 # 7. Solve it!
 
+NY_Times_Aug_2033 = {"width":7,"height":7,"values":[1,2,3,4,5,6,7],"rules":[{"op":"*","value":42,"cells":[{"x":0,"y":0},{"x":1,"y":0},{"x":0,"y":1}]},{"op":"=","value":3,"cells":[{"x":2,"y":0}]},{"op":"-","value":3,"cells":[{"x":3,"y":0},{"x":3,"y":1}]},{"op":"-","value":4,"cells":[{"x":4,"y":0},{"x":5,"y":0}]},{"op":"-","value":1,"cells":[{"x":6,"y":0},{"x":6,"y":1}]},{"op":"-","value":5,"cells":[{"x":4,"y":1},{"x":5,"y":1}]},{"op":"+","value":10,"cells":[{"x":6,"y":2},{"x":6,"y":3},{"x":6,"y":4}]},{"op":"=","value":3,"cells":[{"x":6,"y":5}]},{"op":"=","value":3,"cells":[{"x":5,"y":4}]},{"op":"+","value":19,"cells":[{"x":4,"y":4},{"x":4,"y":5},{"x":5,"y":5}]},{"op":"/","value":2,"cells":[{"x":5,"y":6},{"x":6,"y":6}]},{"op":"+","value":15,"cells":[{"x":3,"y":4},{"x":3,"y":5},{"x":3,"y":6},{"x":4,"y":6}]},{"op":"*","value":90,"cells":[{"x":2,"y":5},{"x":0,"y":6},{"x":1,"y":6},{"x":2,"y":6}]},{"op":"-","value":2,"cells":[{"x":0,"y":4},{"x":0,"y":5}]},{"op":"-","value":4,"cells":[{"x":1,"y":4},{"x":1,"y":5}]},{"op":"*","value":56,"cells":[{"x":1,"y":3},{"x":2,"y":3},{"x":2,"y":4}]},{"op":"+","value":10,"cells":[{"x":1,"y":1},{"x":2,"y":1}]},{"op":"-","value":1,"cells":[{"x":1,"y":2},{"x":2,"y":2}]},{"op":"/","value":2,"cells":[{"x":3,"y":2},{"x":3,"y":3}]},{"op":"-","value":1,"cells":[{"x":4,"y":2},{"x":4,"y":3}]},{"op":"*","value":20,"cells":[{"x":5,"y":2},{"x":5,"y":3}]},{"op":"-","value":4,"cells":[{"x":0,"y":2},{"x":0,"y":3}]}]}
+
 
 # From NYT Magazine, 27-Mar-2022
 p7_mar2022 = {"name":"p7_mar2022", "reference":"NYTimes 27-Mar-2022",

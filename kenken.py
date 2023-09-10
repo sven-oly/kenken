@@ -72,16 +72,19 @@ def add_possibles(val, max_val, num_cells, linear=True):
         min_poss = max(diff, 1)
         max_poss = min(max_val, val - sum_smallest)
         possibles = set([n for n in range(min_poss, max_poss + 1)])
-        return possibles
+    else:
+        # This is a non-linear cage. More complicated.
+        top = min(max_val, val - (num_cells - 1))  # Consider # cells
+        if max_poss != 0 and max_poss != top:
+            check = 1
+        min_poss = max(1, val - (num_cells - 1) * max_val)
+        possibles = set([n for n in range(min_poss, top + 1)])
 
-    # This is a non-linear cage. More complicated.
-    top = min(val - 1, max_val)  # Need to consider # cells
-    if max_poss != 0 and max_poss != top:
-        check = 1
-    possibles = set([n for n in range(1, top + 1)])
     if num_cells == 2 and val % 2 == 0:
         # Special case
-        possibles.remove(val // 2)
+        half = val // 2
+        if half in possibles:
+            possibles.remove(half)
     return possibles
 
 
@@ -191,8 +194,8 @@ class Cage:
                 if self.operator == operator.sub and abs(test_val) == value:
                     reduced_set.add(i)
                 elif self.operator == operator.truediv and (
-                        round(test_val) == value or
-                        round(1.0 / test_val) == value):
+                        math.trunc(test_val + 0.05) == value or
+                        math.trunc(1.0 / test_val + 0.05) == value):
                     reduced_set.add(i)
                     # print('   TRUEDIV %s to set' % (i))
                 elif test_val == value:  # Add or multiply
@@ -849,7 +852,9 @@ def main():
     # p = Puzzle(kk_puzzles.puzzle7)  # This one works with a 2-guess
     # p = Puzzle(kk_puzzles.puzzle5)
     # p = Puzzle(kk_puzzles.p5_27_mar)
-    p = Puzzle(kk_puzzles.p9_39290_hard)  # Can't solve yet
+    #p = Puzzle(kk_puzzles.p9_39290_hard)  # Can't solve yet
+    p = Puzzle(kk_puzzles.NY_Times_Aug_2033)
+
     #p = Puzzle(kk_puzzles.p8_hard)  # Solved with deep_solve!
     p.set_args(arg_info)
 
