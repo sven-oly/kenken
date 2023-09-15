@@ -854,8 +854,10 @@ def main():
     # p = Puzzle(kk_puzzles.p5_27_mar)
     #p = Puzzle(kk_puzzles.p9_39290_hard)  # Can't solve yet
     p = Puzzle(kk_puzzles.NY_Times_Aug_2033)
-
+    p = Puzzle(kk_puzzles.nytimes_20230611)
+    
     #p = Puzzle(kk_puzzles.p8_hard)  # Solved with deep_solve!
+
     p.set_args(arg_info)
 
     solved = p.solve_puzzle()
